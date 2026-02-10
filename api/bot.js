@@ -32,6 +32,9 @@ const MODELS = {
 const sessions = {};
 const userConfig = {};
 
+const DEFAULT_SYSTEM =
+  "Kamu adalah asisten AI yang ramah dan komunikatif. Gunakan bahasa Indonesia santai, jelas, dan sopan. Jika teknis, gunakan poin atau contoh kode.";
+
 // ================== HELPERS ==================
 function getSession(chatId) {
   if (!sessions[chatId]) sessions[chatId] = [];
@@ -42,23 +45,26 @@ function getConfig(chatId) {
   if (!userConfig[chatId]) {
     userConfig[chatId] = {
       model: "gpt5",
-      system: "kamu adalah asisten cerdas ramah,gunakan bahasa indo gaul ala gen z"
+      system: DEFAULT_SYSTEM
     };
   }
   return userConfig[chatId];
 }
 
-// 🔥 FITUR BARU: Markdown sanitizer biar Telegram ga error
+// 🔥 Markdown sanitizer
 function sanitizeMarkdown(text) {
   if (!text) return text;
-
-  // Pastikan code block ``` selalu genap
   const fenceCount = (text.match(/```/g) || []).length;
-  if (fenceCount % 2 !== 0) {
-    text += "\n```";
-  }
-
+  if (fenceCount % 2 !== 0) text += "\n```";
   return text;
+}
+
+// 🔥 Split message biar ga tembus limit Telegram
+async function safeSendMessage(chatId, text, options) {
+  const MAX = 3900;
+  for (let i = 0; i < text.length; i += MAX) {
+    await bot.sendMessage(chatId, text.slice(i, i + MAX), options);
+  }
 }
 
 async function callAIAPI(model, prompt) {
@@ -72,33 +78,44 @@ async function callAIAPI(model, prompt) {
 // ================== COMMAND HANDLERS ==================
 async function handleStartCommand(chatId, config) {
   const message = `
-🤖 *TanyaAja AI BOT*
+🤖 *TanyaAja AI*
 
-Selamat datang. Bot AI siap dipakai.
+Bot AI untuk membantu menjawab pertanyaan Anda.
 
 ✨ *Fitur:*
 • /model - ganti model
-• /system - atur system prompt
+• /system - atur gaya AI
+• /system reset - reset system prompt
 • /reset - reset chat
-• Chat biasa langsung dijawab AI
+• /help - bantuan
 
 📊 *Model aktif:* \`${config.model}\`
 
-🎯 *Cara pakai:*
-1. Kirim pesan biasa
-2. Gunakan command untuk konfigurasi
-3. AI bisa membalas dengan judul, tebal, dan kode
-
-📌 *Info:*
-• Creator: *Abiq Nurmagedov*
-• Api: Magma Api
-• Status: Gratis
-
-Catatan:
-Jika bot tidak membalas, kemungkinan API sedang lambat atau maintenance.
+Ketik pertanyaan Anda untuk mulai.
 `.trim();
 
-  await bot.sendMessage(chatId, message, {
+  await safeSendMessage(chatId, message, {
+    parse_mode: "Markdown",
+    disable_web_page_preview: true
+  });
+}
+
+async function handleHelpCommand(chatId) {
+  const message = `
+📘 *Bantuan TanyaAja AI*
+
+Perintah:
+• /start - mulai
+• /help - bantuan
+• /model [nama] - ganti model
+• /system [prompt] - ubah gaya AI
+• /system reset - kembali ke default
+• /reset - reset percakapan
+
+Cukup kirim pesan biasa untuk bertanya.
+`.trim();
+
+  await safeSendMessage(chatId, message, {
     parse_mode: "Markdown",
     disable_web_page_preview: true
   });
@@ -107,7 +124,7 @@ Jika bot tidak membalas, kemungkinan API sedang lambat atau maintenance.
 async function handleModelCommand(chatId, text, config) {
   const args = text.split(" ");
   if (!args[1]) {
-    return bot.sendMessage(
+    return safeSendMessage(
       chatId,
       `Model tersedia:\n${Object.keys(MODELS).map(m => `• \`${m}\``).join("\n")}`,
       { parse_mode: "Markdown" }
@@ -116,51 +133,61 @@ async function handleModelCommand(chatId, text, config) {
 
   const model = args[1].toLowerCase();
   if (!MODELS[model]) {
-    return bot.sendMessage(chatId, "❌ Model tidak tersedia.");
+    return safeSendMessage(chatId, "❌ Model tidak tersedia.");
   }
 
   config.model = model;
-  await bot.sendMessage(chatId, `✅ Model diganti ke \`${model}\``, {
+  await safeSendMessage(chatId, `✅ Model diganti ke \`${model}\``, {
     parse_mode: "Markdown"
   });
 }
 
 async function handleSystemCommand(chatId, text, config) {
-  const prompt = text.replace("/system", "").trim();
-  if (!prompt) {
-    return bot.sendMessage(chatId, "❌ System prompt tidak boleh kosong.");
+  const arg = text.replace("/system", "").trim();
+
+  if (arg === "reset") {
+    config.system = DEFAULT_SYSTEM;
+    return safeSendMessage(chatId, "✅ System prompt direset ke default.");
   }
-  config.system = prompt;
-  await bot.sendMessage(chatId, "✅ System prompt diperbarui.");
+
+  if (!arg) {
+    return safeSendMessage(chatId, "❌ System prompt tidak boleh kosong.");
+  }
+
+  config.system = arg;
+  await safeSendMessage(chatId, "✅ System prompt diperbarui.");
 }
 
 async function handleResetCommand(chatId) {
   sessions[chatId] = [];
-  await bot.sendMessage(chatId, "🗑️ Percakapan direset.");
+  await safeSendMessage(chatId, "🗑️ Percakapan direset.");
 }
 
 async function handleAIChat(chatId, text, config, session) {
-  await bot.sendChatAction(chatId, "typing");
+  try {
+    await bot.sendChatAction(chatId, "typing");
 
-  session.push({ role: "user", content: text });
+    session.push({ role: "user", content: text });
 
-  const context = [
-    `system: ${config.system}`,
-    ...session.slice(-10).map(m => `${m.role}: ${m.content}`)
-  ].join("\n");
+    const context = [
+      `system: ${config.system}`,
+      ...session.slice(-10).map(m => `${m.role}: ${m.content}`)
+    ].join("\n");
 
-  let reply = await callAIAPI(MODELS[config.model], context);
+    let reply = await callAIAPI(MODELS[config.model], context);
+    reply = sanitizeMarkdown(reply);
 
-  // 🔥 FITUR BARU DIPAKAI DI SINI
-  reply = sanitizeMarkdown(reply);
+    session.push({ role: "assistant", content: reply });
+    if (session.length > 20) sessions[chatId] = session.slice(-10);
 
-  session.push({ role: "assistant", content: reply });
-  if (session.length > 20) sessions[chatId] = session.slice(-10);
-
-  await bot.sendMessage(chatId, reply, {
-    parse_mode: "Markdown",
-    disable_web_page_preview: true
-  });
+    await safeSendMessage(chatId, reply, {
+      parse_mode: "Markdown",
+      disable_web_page_preview: true
+    });
+  } catch (err) {
+    console.error(err);
+    await safeSendMessage(chatId, "⚠️ Terjadi kesalahan. Coba lagi sebentar.");
+  }
 }
 
 // ================== MAIN HANDLER ==================
@@ -184,18 +211,15 @@ module.exports = async (req, res) => {
   const config = getConfig(chatId);
   const session = getSession(chatId);
 
-  try {
-    if (text.startsWith("/start")) await handleStartCommand(chatId, config);
-    else if (text.startsWith("/model")) await handleModelCommand(chatId, text, config);
-    else if (text.startsWith("/system")) await handleSystemCommand(chatId, text, config);
-    else if (text.startsWith("/reset")) await handleResetCommand(chatId);
-    else if (text.startsWith("/")) await bot.sendMessage(chatId, "❌ Command tidak dikenal.");
-    else await handleAIChat(chatId, text, config, session);
-  } catch (e) {
-    console.error(e);
-  }
+  if (text.startsWith("/start")) await handleStartCommand(chatId, config);
+  else if (text.startsWith("/help")) await handleHelpCommand(chatId);
+  else if (text.startsWith("/model")) await handleModelCommand(chatId, text, config);
+  else if (text.startsWith("/system")) await handleSystemCommand(chatId, text, config);
+  else if (text.startsWith("/reset")) await handleResetCommand(chatId);
+  else if (text.startsWith("/")) await safeSendMessage(chatId, "❌ Command tidak dikenal.");
+  else await handleAIChat(chatId, text, config, session);
 
   return res.status(200).json({ ok: true });
 };
 
-console.log("🤖 Bot ready (Markdown enabled & safe)");
+console.log("🤖 Bot ready (stable, safe, improved)");
