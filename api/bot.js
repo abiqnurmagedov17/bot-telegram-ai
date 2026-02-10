@@ -73,6 +73,31 @@ function formatCodeBlocks(text) {
   return text;
 }
 
+// Fungsi untuk memastikan Markdown aman
+function safeMarkdown(text) {
+  // Escape backtick tunggal yang tidak berpasangan
+  let result = text;
+  
+  // Hitung jumlah backtick
+  const backtickCount = (text.match(/`/g) || []).length;
+  
+  // Jika jumlah backtick ganjil, escape yang terakhir
+  if (backtickCount % 2 !== 0) {
+    // Cari backtick yang tidak berpasangan
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const lineBackticks = (lines[i].match(/`/g) || []).length;
+      if (lineBackticks % 2 !== 0) {
+        // Ganti dengan backtick yang di-escape
+        lines[i] = lines[i].replace(/`/g, '\\`');
+      }
+    }
+    result = lines.join('\n');
+  }
+  
+  return result;
+}
+
 async function callAIAPI(model, prompt) {
   try {
     console.log(`Calling AI API: ${model}`);
@@ -111,7 +136,7 @@ async function handleStartCommand(chatId, config) {
 🎯 *CARA PENGGUNAAN:*
 1. Kirim pesan biasa untuk chatting dengan AI
 2. Gunakan perintah di atas untuk konfigurasi
-3. Kode program akan diformat dengan \`\`\` untuk mudah disalin
+3. Kode program akan diformat dengan tanda backtick (\`\`\`) untuk mudah disalin
 
 💡 *CONTOH PERINTAH:*
 • /model gpt5
@@ -289,7 +314,7 @@ _Menyediakan berbagai model AI gratis_
 \`/info\` - Informasi bot
 
 💻 *FORMATTING:*
-• Kode program: \`\`\`kode\`\`\`
+• Kode program: backtick triple (\`\`\`kode\`\`\`)
 • Teks tebal: *teks*
 • Miring: _teks_
 • Link: [teks](url)
