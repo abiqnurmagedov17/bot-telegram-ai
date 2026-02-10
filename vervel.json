@@ -1,12 +1,17 @@
 {
   "functions": {
     "api/bot.js": {
-      "maxDuration": 30
+      "maxDuration": 10,
+      "runtime": "nodejs20.x"
     }
   },
   "rewrites": [
     {
       "source": "/api/bot",
+      "destination": "/api/bot.js"
+    },
+    {
+      "source": "/",
       "destination": "/api/bot.js"
     }
   ]
