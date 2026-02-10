@@ -67,6 +67,15 @@ async function safeSendMessage(chatId, text, options) {
   }
 }
 
+// 🔥 FITUR BARU: typing indicator interval
+function startTyping(chatId) {
+  bot.sendChatAction(chatId, "typing");
+  const interval = setInterval(() => {
+    bot.sendChatAction(chatId, "typing");
+  }, 4000);
+  return interval;
+}
+
 async function callAIAPI(model, prompt) {
   const res = await axios.get(model, {
     params: { prompt },
@@ -164,8 +173,10 @@ async function handleResetCommand(chatId) {
 }
 
 async function handleAIChat(chatId, text, config, session) {
+  let typingInterval;
+
   try {
-    await bot.sendChatAction(chatId, "typing");
+    typingInterval = startTyping(chatId);
 
     session.push({ role: "user", content: text });
 
@@ -180,11 +191,14 @@ async function handleAIChat(chatId, text, config, session) {
     session.push({ role: "assistant", content: reply });
     if (session.length > 20) sessions[chatId] = session.slice(-10);
 
+    clearInterval(typingInterval);
+
     await safeSendMessage(chatId, reply, {
       parse_mode: "Markdown",
       disable_web_page_preview: true
     });
   } catch (err) {
+    if (typingInterval) clearInterval(typingInterval);
     console.error(err);
     await safeSendMessage(chatId, "⚠️ Terjadi kesalahan. Coba lagi sebentar.");
   }
@@ -222,4 +236,4 @@ module.exports = async (req, res) => {
   return res.status(200).json({ ok: true });
 };
 
-console.log("🤖 Bot ready (stable, safe, improved)");
+console.log("🤖 Bot ready (typing indicator stabil)");
