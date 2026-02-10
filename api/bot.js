@@ -42,10 +42,23 @@ function getConfig(chatId) {
   if (!userConfig[chatId]) {
     userConfig[chatId] = {
       model: "gpt5",
-      system: "Kamu adalah asisten AI yang membantu. Gunakan Markdown sederhana."
+      system: "kamu adalah asisten cerdas ramah,gunakan bahasa indo gaul ala gen z"
     };
   }
   return userConfig[chatId];
+}
+
+// 🔥 FITUR BARU: Markdown sanitizer biar Telegram ga error
+function sanitizeMarkdown(text) {
+  if (!text) return text;
+
+  // Pastikan code block ``` selalu genap
+  const fenceCount = (text.match(/```/g) || []).length;
+  if (fenceCount % 2 !== 0) {
+    text += "\n```";
+  }
+
+  return text;
 }
 
 async function callAIAPI(model, prompt) {
@@ -59,7 +72,7 @@ async function callAIAPI(model, prompt) {
 // ================== COMMAND HANDLERS ==================
 async function handleStartCommand(chatId, config) {
   const message = `
-🤖 *AI TELEGRAM BOT*
+🤖 *TanyaAja AI BOT*
 
 Selamat datang. Bot AI siap dipakai.
 
@@ -74,11 +87,11 @@ Selamat datang. Bot AI siap dipakai.
 🎯 *Cara pakai:*
 1. Kirim pesan biasa
 2. Gunakan command untuk konfigurasi
-3. Kode akan ditampilkan dalam blok kode agar mudah disalin
+3. AI bisa membalas dengan judul, tebal, dan kode
 
 📌 *Info:*
 • Creator: *Abiq Nurmagedov*
-• API: Magma API
+• Api: Magma Api
 • Status: Gratis
 
 Catatan:
@@ -136,7 +149,10 @@ async function handleAIChat(chatId, text, config, session) {
     ...session.slice(-10).map(m => `${m.role}: ${m.content}`)
   ].join("\n");
 
-  const reply = await callAIAPI(MODELS[config.model], context);
+  let reply = await callAIAPI(MODELS[config.model], context);
+
+  // 🔥 FITUR BARU DIPAKAI DI SINI
+  reply = sanitizeMarkdown(reply);
 
   session.push({ role: "assistant", content: reply });
   if (session.length > 20) sessions[chatId] = session.slice(-10);
@@ -182,4 +198,4 @@ module.exports = async (req, res) => {
   return res.status(200).json({ ok: true });
 };
 
-console.log("🤖 Bot ready (Markdown safe)");
+console.log("🤖 Bot ready (Markdown enabled & safe)");
