@@ -5,7 +5,8 @@
   "main": "api/bot.js",
   "scripts": {
     "start": "node api/bot.js",
-    "dev": "node api/bot.js"
+    "dev": "node api/bot.js",
+    "vercel-build": "echo 'No build step required for Node.js'"
   },
   "dependencies": {
     "axios": "^1.7.9",
@@ -13,8 +14,7 @@
     "node-telegram-bot-api": "^0.66.0"
   },
   "engines": {
-    "node": "20.x",
-    "npm": ">=10.0.0"
+    "node": "24.x"
   },
   "keywords": ["telegram", "bot", "ai", "vercel"],
   "author": "",
