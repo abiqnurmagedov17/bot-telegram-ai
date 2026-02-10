@@ -1,8 +1,7 @@
 {
   "functions": {
     "api/bot.js": {
-      "maxDuration": 10,
-      "runtime": "nodejs20.x"
+      "maxDuration": 10
     }
   },
   "rewrites": [
@@ -13,21 +12,6 @@
     {
       "source": "/",
       "destination": "/api/bot.js"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET,POST,OPTIONS"
-        }
-      ]
     }
   ]
 }
