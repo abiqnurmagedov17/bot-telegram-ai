@@ -9,7 +9,9 @@ console.log("=== BOT STARTING ===");
 console.log("NODE_ENV:", process.env.NODE_ENV);
 console.log("VERCEL_ENV:", process.env.VERCEL_ENV);
 console.log("BOT_TOKEN exists:", !!process.env.BOT_TOKEN);
-console.log("BOT_TOKEN starts with:", process.env.BOT_TOKEN?.substring(0, 10) + "...");
+if (process.env.BOT_TOKEN) {
+  console.log("BOT_TOKEN starts with:", process.env.BOT_TOKEN.substring(0, 10) + "...");
+}
 console.log("===========================");
 
 // Validasi BOT_TOKEN
@@ -18,17 +20,9 @@ if (!process.env.BOT_TOKEN) {
   console.error("Please add BOT_TOKEN in Vercel Environment Variables");
 }
 
-// Inisialisasi bot dengan webhook mode
+// Inisialisasi bot
 const bot = new TelegramBot(process.env.BOT_TOKEN || "dummy-token", {
-  polling: false,  // IMPORTANT: false untuk webhook
-  onlyFirstMatch: true,
-  request: {
-    agentOptions: {
-      keepAlive: true,
-      family: 4
-    },
-    timeout: 10000
-  }
+  polling: false
 });
 
 // ================== CONFIGURATION ==================
@@ -39,15 +33,13 @@ const MODELS = {
   muslim: "https://magma-api.biz.id/ai/muslim"
 };
 
-// Session storage (in-memory, reset saat cold start)
+// Session storage
 const sessions = {};
 const userConfig = {};
 
 // ================== HELPER FUNCTIONS ==================
 function getSession(chatId) {
-  if (!sessions[chatId]) {
-    sessions[chatId] = [];
-  }
+  if (!sessions[chatId]) sessions[chatId] = [];
   return sessions[chatId];
 }
 
@@ -55,7 +47,7 @@ function getConfig(chatId) {
   if (!userConfig[chatId]) {
     userConfig[chatId] = {
       model: "gpt5",
-      system: "Kamu adalah asisten AI yang membantu. Jawab dengan ramah dan informatif."
+      system: "Kamu adalah asisten AI yang membantu."
     };
   }
   return userConfig[chatId];
@@ -66,10 +58,7 @@ async function callAIAPI(model, prompt) {
     console.log(`Calling AI API: ${model}`);
     const response = await axios.get(model, {
       params: { prompt },
-      timeout: 8000,
-      headers: {
-        'User-Agent': 'Telegram-AI-Bot/1.0'
-      }
+      timeout: 8000
     });
     
     return response.data?.result?.response || "Maaf, AI sedang tidak bisa merespons.";
@@ -90,7 +79,6 @@ async function handleStartCommand(chatId, config) {
 ✅ Chat langsung dengan AI
 
 *Model saat ini:* ${config.model}
-*System prompt:* ${config.system.substring(0, 50)}...
 
 Ketik pesan apa saja untuk mulai chatting dengan AI!`;
   
@@ -198,7 +186,6 @@ module.exports = async (req, res) => {
   console.log(`Time: ${new Date().toISOString()}`);
   console.log(`Method: ${req.method}`);
   console.log(`URL: ${req.url}`);
-  console.log(`Body: ${JSON.stringify(req.body).substring(0, 200)}...`);
   
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -225,7 +212,7 @@ module.exports = async (req, res) => {
       }
     };
     
-    console.log("Health check:", healthResponse);
+    console.log("Health check response:", healthResponse);
     return res.status(200).json(healthResponse);
   }
   
@@ -241,7 +228,36 @@ module.exports = async (req, res) => {
         });
       }
       
-      const { body } = req;
+      // PARSE REQUEST BODY - INI PERBAIKAN UTAMA
+      let body = {};
+      try {
+        if (req.body) {
+          // Jika body sudah berupa object (Vercel sudah parse)
+          body = req.body;
+        } else {
+          // Jika body masih buffer/string (harus di-parse)
+          let data = '';
+          req.on('data', chunk => {
+            data += chunk.toString();
+          });
+          
+          await new Promise((resolve) => {
+            req.on('end', () => {
+              try {
+                body = JSON.parse(data);
+              } catch (e) {
+                console.error("Error parsing JSON:", e);
+              }
+              resolve();
+            });
+          });
+        }
+      } catch (parseError) {
+        console.error("Error parsing request body:", parseError);
+        return res.status(400).json({ error: "Invalid JSON" });
+      }
+      
+      console.log("Parsed body:", JSON.stringify(body).substring(0, 500));
       
       // Validasi body request
       if (!body || !body.message) {
@@ -264,7 +280,7 @@ module.exports = async (req, res) => {
       const session = getSession(chatId);
       
       // Handle commands
-      if (text === "/start" || text === "/start@your_bot_username") {
+      if (text === "/start" || text.startsWith("/start")) {
         await handleStartCommand(chatId, config);
       } 
       else if (text.startsWith("/model")) {
@@ -273,7 +289,7 @@ module.exports = async (req, res) => {
       else if (text.startsWith("/system")) {
         await handleSystemCommand(chatId, text, config);
       }
-      else if (text === "/reset" || text === "/reset@your_bot_username") {
+      else if (text === "/reset" || text.startsWith("/reset")) {
         await handleResetCommand(chatId);
       }
       else if (text.startsWith("/")) {
@@ -293,6 +309,7 @@ module.exports = async (req, res) => {
       
     } catch (error) {
       console.error("Error processing webhook:", error);
+      console.error("Error stack:", error.stack);
       
       // Tetap return 200 ke Telegram agar tidak di-retry terus
       return res.status(200).json({ 
