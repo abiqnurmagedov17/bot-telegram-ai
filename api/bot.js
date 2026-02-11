@@ -47,20 +47,11 @@ function getConfig(chatId) {
       model: "gpt5",
       system: DEFAULT_SYSTEM
     };
-  }
-  return userConfig[chatId];
-}
-
-// 🔥 Markdown sanitizer
-function sanitizeMarkdown(text) {
-  if (!text) return text;
-  const fenceCount = (text.match(/```/g) || []).length;
-  if (fenceCount % 2 !== 0) text += "\n```";
-  return text;
+  }  return userConfig[chatId];
 }
 
 // 🔥 Split message biar ga tembus limit Telegram
-async function safeSendMessage(chatId, text, options) {
+async function safeSendMessage(chatId, text, options = {}) {
   const MAX = 3900;
   for (let i = 0; i < text.length; i += MAX) {
     await bot.sendMessage(chatId, text.slice(i, i + MAX), options);
@@ -76,14 +67,35 @@ function startTyping(chatId) {
   return interval;
 }
 
+// 🔥 Perbaikan: timeout dinaikkan + penanganan error lebih aman
 async function callAIAPI(model, prompt) {
-  const res = await axios.get(model, {
-    params: { prompt },
-    timeout: 10000
-  });
-  return res.data?.result?.response || res.data?.response || "AI tidak merespons.";
-}
+  try {
+    const res = await axios.get(model, {
+      params: { prompt },
+      timeout: 25000 // naikkan timeout ke 25 detik (aman untuk Vercel max 28s)
+    });
 
+    // Cek apakah respons valid
+    if (!res || !res.data) {
+      throw new Error("Empty or invalid response from AI API");
+    }
+
+    // Ambil respons dari berbagai kemungkinan struktur
+    let reply = res.data?.result?.response || res.data?.response || "";
+
+    if (typeof reply !== "string" || reply.trim() === "") {
+      reply = "Maaf, AI tidak memberikan respons yang valid.";
+    }
+
+    return reply;
+  } catch (error) {
+    console.error("[AI API ERROR]", error.message || error);
+    if (error.code === "ECONNABORTED") {
+      return "⚠️ Respons terlalu lama. Coba pertanyaan yang lebih ringkas.";
+    }
+    return "⚠️ Gagal menghubungi AI. Coba lagi nanti.";
+  }
+}
 // ================== COMMAND HANDLERS ==================
 async function handleStartCommand(chatId, config) {
   const message = `
@@ -133,8 +145,7 @@ Cukup kirim pesan biasa untuk bertanya.
 async function handleModelCommand(chatId, text, config) {
   const args = text.split(" ");
   if (!args[1]) {
-    return safeSendMessage(
-      chatId,
+    return safeSendMessage(      chatId,
       `Model tersedia:\n${Object.keys(MODELS).map(m => `• \`${m}\``).join("\n")}`,
       { parse_mode: "Markdown" }
     );
@@ -184,23 +195,22 @@ async function handleAIChat(chatId, text, config, session) {
       `system: ${config.system}`,
       ...session.slice(-10).map(m => `${m.role}: ${m.content}`)
     ].join("\n");
-
     let reply = await callAIAPI(MODELS[config.model], context);
-    reply = sanitizeMarkdown(reply);
 
     session.push({ role: "assistant", content: reply });
     if (session.length > 20) sessions[chatId] = session.slice(-10);
 
     clearInterval(typingInterval);
 
+    // 🔥 PENTING: Nonaktifkan Markdown untuk hindari error parsing
     await safeSendMessage(chatId, reply, {
-      parse_mode: "Markdown",
+      parse_mode: null, // <-- ini yang mencegah error saat teks panjang/format rusak
       disable_web_page_preview: true
     });
   } catch (err) {
     if (typingInterval) clearInterval(typingInterval);
-    console.error(err);
-    await safeSendMessage(chatId, "⚠️ Terjadi kesalahan. Coba lagi sebentar.");
+    console.error("[HANDLE_AI_CHAT ERROR]", err);
+    await safeSendMessage(chatId, "⚠️ Terjadi kesalahan internal. Coba lagi sebentar.");
   }
 }
 
@@ -233,7 +243,6 @@ module.exports = async (req, res) => {
   else if (text.startsWith("/")) await safeSendMessage(chatId, "❌ Command tidak dikenal.");
   else await handleAIChat(chatId, text, config, session);
 
-  return res.status(200).json({ ok: true });
-};
+  return res.status(200).json({ ok: true });};
 
 console.log("🤖 Bot ready (typing indicator stabil)");
