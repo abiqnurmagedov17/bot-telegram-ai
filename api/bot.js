@@ -173,7 +173,8 @@ async function handleModelCommand(chatId, text, config) {
   }
 
   config.model = model;
-  await safeSendMessage(chatId, `✅ Model diganti ke \\`${model}\\``, {
+  // ✅ Perbaikan: gunakan \`` untuk inline code dalam template literal
+  await safeSendMessage(chatId, `✅ Model diganti ke \`${model}\``, {
     parse_mode: "MarkdownV2"
   });
 }
@@ -193,8 +194,8 @@ async function handleSystemCommand(chatId, text, config) {
   config.system = arg;
   await safeSendMessage(chatId, "✅ System prompt diperbarui.");
 }
-
-async function handleResetCommand(chatId) {  sessions[chatId] = [];
+async function handleResetCommand(chatId) {
+  sessions[chatId] = [];
   await safeSendMessage(chatId, "🗑️ Percakapan direset.");
 }
 
@@ -242,8 +243,8 @@ module.exports = async (req, res) => {
   }
 
   const body = req.body;
-  if (!body?.message?.text) {
-    return res.status(200).json({ ok: true });  }
+  if (!body?.message?.text) {    return res.status(200).json({ ok: true });
+  }
 
   const chatId = body.message.chat.id;
   const text = body.message.text.trim();
@@ -262,4 +263,4 @@ module.exports = async (req, res) => {
   return res.status(200).json({ ok: true });
 };
 
-console.log("🤖 Bot ready (dengan MarkdownV2 aman & timeout 25s)");
+console.log("🤖 Bot ready (dengan MarkdownV2 aman, timeout 25s, dan sintaks benar)");
