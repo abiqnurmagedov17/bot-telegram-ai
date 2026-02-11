@@ -47,7 +47,8 @@ function getConfig(chatId) {
       model: "gpt5",
       system: DEFAULT_SYSTEM
     };
-  }  return userConfig[chatId];
+  }
+  return userConfig[chatId];
 }
 
 // 🔥 Split message biar ga tembus limit Telegram
@@ -58,7 +59,7 @@ async function safeSendMessage(chatId, text, options = {}) {
   }
 }
 
-// 🔥 FITUR BARU: typing indicator interval
+// 🔥 typing indicator
 function startTyping(chatId) {
   bot.sendChatAction(chatId, "typing");
   const interval = setInterval(() => {
@@ -67,47 +68,34 @@ function startTyping(chatId) {
   return interval;
 }
 
-// 🔥 Perbaikan: timeout dinaikkan + penanganan error lebih aman
+// ================== AI CALL ==================
 async function callAIAPI(model, prompt) {
   try {
     const res = await axios.get(model, {
       params: { prompt },
-      timeout: 25000 // 25 detik — aman untuk Vercel (max 28s)
+      timeout: 25000
     });
 
-    if (!res || !res.data) {
-      throw new Error("Empty or invalid response from AI API");
-    }
-
     let reply = res.data?.result?.response || res.data?.response || "";
-
-    if (typeof reply !== "string" || reply.trim() === "") {
+    if (!reply || typeof reply !== "string") {
       reply = "Maaf, AI tidak memberikan respons yang valid.";
     }
-
     return reply;
-  } catch (error) {
-    console.error("[AI API ERROR]", error.message || error);
-    if (error.code === "ECONNABORTED") {
-      return "⚠️ Respons terlalu lama. Coba pertanyaan yang lebih ringkas.";
-    }
+  } catch (err) {
+    console.error("[AI API ERROR]", err.message || err);
     return "⚠️ Gagal menghubungi AI. Coba lagi nanti.";
   }
 }
 
-// 🔥 Sanitasi MarkdownV2 khusus untuk output AI
-function prepareMarkdownV2(text) {  if (typeof text !== 'string') return '';
-  // Escape semua karakter khusus MarkdownV2
-  let t = text.replace(/([[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
-  // Restore bold (**...**)
-  t = t.replace(/\\\*\\\*(.+?)\\\*\\\*/g, '**$1**');
-  // Restore italic (__...__)
-  t = t.replace(/\\_\\_(.+?)\\_\\_/g, '__$1__');
-  // Restore code block (multiline)
-  t = t.replace(/\\`\\`\\`([\s\S]*?)\\`\\`\\`/g, '```$1```');
-  // Pastikan jumlah ``` genap
+// ================== MARKDOWN ==================
+function prepareMarkdownV2(text) {
+  if (typeof text !== "string") return "";
+  let t = text.replace(/([[\]()~`>#+\-=|{}.!\\])/g, "\\$1");
+  t = t.replace(/\\\*\\\*(.+?)\\\*\\\*/g, "**$1**");
+  t = t.replace(/\\_\\_(.+?)\\_\\_/g, "__$1__");
+  t = t.replace(/\\`\\`\\`([\s\S]*?)\\`\\`\\`/g, "```$1```");
   const ticks = (t.match(/```/g) || []).length;
-  if (ticks % 2 === 1) t += '\n```';
+  if (ticks % 2 === 1) t += "\n```";
   return t;
 }
 
@@ -116,64 +104,31 @@ async function handleStartCommand(chatId, config) {
   const message = `
 🤖 *TanyaAja AI*
 
-Bot AI untuk membantu menjawab pertanyaan Anda.
-
-✨ *Fitur:*
-• /model - ganti model
-• /system - atur gaya AI
-• /system reset - reset system prompt
-• /reset - reset chat
-• /help - bantuan
-
 📊 *Model aktif:* \`${config.model}\`
-
-Ketik pertanyaan Anda untuk mulai.
 `.trim();
 
-  await safeSendMessage(chatId, message, {
-    parse_mode: "MarkdownV2",
-    disable_web_page_preview: true
-  });
+  await safeSendMessage(chatId, message, { parse_mode: "MarkdownV2" });
 }
 
 async function handleHelpCommand(chatId) {
-  const message = `
-📘 *Bantuan TanyaAja AI*
-
-Perintah:
-• /start - mulai
-• /help - bantuan
-• /model \\[nama\\] - ganti model
-• /system \\[prompt\\] - ubah gaya AI
-• /system reset - kembali ke default• /reset - reset percakapan
-
-Cukup kirim pesan biasa untuk bertanya.
-`.trim();
-
-  await safeSendMessage(chatId, message, {
-    parse_mode: "MarkdownV2",
-    disable_web_page_preview: true
+  await safeSendMessage(chatId, "Gunakan /model /system /reset", {
+    parse_mode: "MarkdownV2"
   });
 }
 
 async function handleModelCommand(chatId, text, config) {
   const args = text.split(" ");
   if (!args[1]) {
-    const modelList = Object.keys(MODELS).map(m => `• \`${m}\``).join("\\n");
-    return safeSendMessage(
-      chatId,
-      `Model tersedia:\\n${modelList}`,
-      { parse_mode: "MarkdownV2" }
-    );
+    const list = Object.keys(MODELS).map(m => `• \`${m}\``).join("\n");
+    return safeSendMessage(chatId, `Model tersedia:\n${list}`, {
+      parse_mode: "MarkdownV2"
+    });
   }
 
   const model = args[1].toLowerCase();
-  if (!MODELS[model]) {
-    return safeSendMessage(chatId, "❌ Model tidak tersedia.");
-  }
+  if (!MODELS[model]) return safeSendMessage(chatId, "❌ Model tidak tersedia.");
 
   config.model = model;
-  // ✅ Perbaikan: gunakan \`` untuk inline code dalam template literal
   await safeSendMessage(chatId, `✅ Model diganti ke \`${model}\``, {
     parse_mode: "MarkdownV2"
   });
@@ -181,29 +136,23 @@ async function handleModelCommand(chatId, text, config) {
 
 async function handleSystemCommand(chatId, text, config) {
   const arg = text.replace("/system", "").trim();
-
   if (arg === "reset") {
     config.system = DEFAULT_SYSTEM;
-    return safeSendMessage(chatId, "✅ System prompt direset ke default.");
+    return safeSendMessage(chatId, "✅ System prompt direset.");
   }
-
-  if (!arg) {
-    return safeSendMessage(chatId, "❌ System prompt tidak boleh kosong.");
-  }
-
   config.system = arg;
   await safeSendMessage(chatId, "✅ System prompt diperbarui.");
 }
+
 async function handleResetCommand(chatId) {
   sessions[chatId] = [];
   await safeSendMessage(chatId, "🗑️ Percakapan direset.");
 }
 
 async function handleAIChat(chatId, text, config, session) {
-  let typingInterval;
-
+  let typing;
   try {
-    typingInterval = startTyping(chatId);
+    typing = startTyping(chatId);
 
     session.push({ role: "user", content: text });
 
@@ -212,42 +161,32 @@ async function handleAIChat(chatId, text, config, session) {
       ...session.slice(-10).map(m => `${m.role}: ${m.content}`)
     ].join("\n");
 
-    let reply = await callAIAPI(MODELS[config.model], context);
+    const reply = await callAIAPI(MODELS[config.model], context);
 
     session.push({ role: "assistant", content: reply });
-    if (session.length > 20) sessions[chatId] = session.slice(-10);
 
-    clearInterval(typingInterval);
+    clearInterval(typing);
 
-    // 🔥 Terapkan sanitasi MarkdownV2 & kirim dengan formatting aktif
-    const cleanReply = prepareMarkdownV2(reply);
-    await safeSendMessage(chatId, cleanReply, {
-      parse_mode: "MarkdownV2",
-      disable_web_page_preview: true
-    });
-  } catch (err) {
-    if (typingInterval) clearInterval(typingInterval);
-    console.error("[HANDLE_AI_CHAT ERROR]", err);
-    await safeSendMessage(chatId, "⚠️ Terjadi kesalahan internal. Coba lagi sebentar.");
+    await safeSendMessage(
+      chatId,
+      prepareMarkdownV2(reply),
+      { parse_mode: "MarkdownV2" }
+    );
+  } catch (e) {
+    if (typing) clearInterval(typing);
+    console.error(e);
   }
 }
 
 // ================== MAIN HANDLER ==================
 module.exports = async (req, res) => {
-  if (req.method === "GET") {
-    return res.status(200).json({ status: "ok" });
-  }
+  if (req.method !== "POST") return res.status(200).end();
 
-  if (req.method !== "POST") {
-    return res.status(405).end();
-  }
+  const msg = req.body?.message;
+  if (!msg?.text) return res.status(200).json({ ok: true });
 
-  const body = req.body;
-  if (!body?.message?.text) {    return res.status(200).json({ ok: true });
-  }
-
-  const chatId = body.message.chat.id;
-  const text = body.message.text.trim();
+  const chatId = msg.chat.id;
+  const text = msg.text.trim();
 
   const config = getConfig(chatId);
   const session = getSession(chatId);
@@ -258,9 +197,12 @@ module.exports = async (req, res) => {
   else if (text.startsWith("/system")) await handleSystemCommand(chatId, text, config);
   else if (text.startsWith("/reset")) await handleResetCommand(chatId);
   else if (text.startsWith("/")) await safeSendMessage(chatId, "❌ Command tidak dikenal.");
-  else await handleAIChat(chatId, text, config, session);
+  else {
+    // 🔥 INI SATU-SATUNYA PERBAIKAN
+    handleAIChat(chatId, text, config, session);
+  }
 
   return res.status(200).json({ ok: true });
 };
 
-console.log("🤖 Bot ready (dengan MarkdownV2 aman, timeout 25s, dan sintaks benar)");
+console.log("🤖 Bot ready");
