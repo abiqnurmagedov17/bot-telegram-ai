@@ -72,15 +72,13 @@ async function callAIAPI(model, prompt) {
   try {
     const res = await axios.get(model, {
       params: { prompt },
-      timeout: 25000 // naikkan timeout ke 25 detik (aman untuk Vercel max 28s)
+      timeout: 25000 // 25 detik — aman untuk Vercel (max 28s)
     });
 
-    // Cek apakah respons valid
     if (!res || !res.data) {
       throw new Error("Empty or invalid response from AI API");
     }
 
-    // Ambil respons dari berbagai kemungkinan struktur
     let reply = res.data?.result?.response || res.data?.response || "";
 
     if (typeof reply !== "string" || reply.trim() === "") {
@@ -96,6 +94,23 @@ async function callAIAPI(model, prompt) {
     return "⚠️ Gagal menghubungi AI. Coba lagi nanti.";
   }
 }
+
+// 🔥 Sanitasi MarkdownV2 khusus untuk output AI
+function prepareMarkdownV2(text) {  if (typeof text !== 'string') return '';
+  // Escape semua karakter khusus MarkdownV2
+  let t = text.replace(/([[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
+  // Restore bold (**...**)
+  t = t.replace(/\\\*\\\*(.+?)\\\*\\\*/g, '**$1**');
+  // Restore italic (__...__)
+  t = t.replace(/\\_\\_(.+?)\\_\\_/g, '__$1__');
+  // Restore code block (multiline)
+  t = t.replace(/\\`\\`\\`([\s\S]*?)\\`\\`\\`/g, '```$1```');
+  // Pastikan jumlah ``` genap
+  const ticks = (t.match(/```/g) || []).length;
+  if (ticks % 2 === 1) t += '\n```';
+  return t;
+}
+
 // ================== COMMAND HANDLERS ==================
 async function handleStartCommand(chatId, config) {
   const message = `
@@ -116,7 +131,7 @@ Ketik pertanyaan Anda untuk mulai.
 `.trim();
 
   await safeSendMessage(chatId, message, {
-    parse_mode: "Markdown",
+    parse_mode: "MarkdownV2",
     disable_web_page_preview: true
   });
 }
@@ -128,16 +143,15 @@ async function handleHelpCommand(chatId) {
 Perintah:
 • /start - mulai
 • /help - bantuan
-• /model [nama] - ganti model
-• /system [prompt] - ubah gaya AI
-• /system reset - kembali ke default
-• /reset - reset percakapan
+• /model \\[nama\\] - ganti model
+• /system \\[prompt\\] - ubah gaya AI
+• /system reset - kembali ke default• /reset - reset percakapan
 
 Cukup kirim pesan biasa untuk bertanya.
 `.trim();
 
   await safeSendMessage(chatId, message, {
-    parse_mode: "Markdown",
+    parse_mode: "MarkdownV2",
     disable_web_page_preview: true
   });
 }
@@ -145,9 +159,11 @@ Cukup kirim pesan biasa untuk bertanya.
 async function handleModelCommand(chatId, text, config) {
   const args = text.split(" ");
   if (!args[1]) {
-    return safeSendMessage(      chatId,
-      `Model tersedia:\n${Object.keys(MODELS).map(m => `• \`${m}\``).join("\n")}`,
-      { parse_mode: "Markdown" }
+    const modelList = Object.keys(MODELS).map(m => `• \`${m}\``).join("\\n");
+    return safeSendMessage(
+      chatId,
+      `Model tersedia:\\n${modelList}`,
+      { parse_mode: "MarkdownV2" }
     );
   }
 
@@ -157,8 +173,8 @@ async function handleModelCommand(chatId, text, config) {
   }
 
   config.model = model;
-  await safeSendMessage(chatId, `✅ Model diganti ke \`${model}\``, {
-    parse_mode: "Markdown"
+  await safeSendMessage(chatId, `✅ Model diganti ke \\`${model}\\``, {
+    parse_mode: "MarkdownV2"
   });
 }
 
@@ -178,8 +194,7 @@ async function handleSystemCommand(chatId, text, config) {
   await safeSendMessage(chatId, "✅ System prompt diperbarui.");
 }
 
-async function handleResetCommand(chatId) {
-  sessions[chatId] = [];
+async function handleResetCommand(chatId) {  sessions[chatId] = [];
   await safeSendMessage(chatId, "🗑️ Percakapan direset.");
 }
 
@@ -195,6 +210,7 @@ async function handleAIChat(chatId, text, config, session) {
       `system: ${config.system}`,
       ...session.slice(-10).map(m => `${m.role}: ${m.content}`)
     ].join("\n");
+
     let reply = await callAIAPI(MODELS[config.model], context);
 
     session.push({ role: "assistant", content: reply });
@@ -202,9 +218,10 @@ async function handleAIChat(chatId, text, config, session) {
 
     clearInterval(typingInterval);
 
-    // 🔥 PENTING: Nonaktifkan Markdown untuk hindari error parsing
-    await safeSendMessage(chatId, reply, {
-      parse_mode: null, // <-- ini yang mencegah error saat teks panjang/format rusak
+    // 🔥 Terapkan sanitasi MarkdownV2 & kirim dengan formatting aktif
+    const cleanReply = prepareMarkdownV2(reply);
+    await safeSendMessage(chatId, cleanReply, {
+      parse_mode: "MarkdownV2",
       disable_web_page_preview: true
     });
   } catch (err) {
@@ -226,8 +243,7 @@ module.exports = async (req, res) => {
 
   const body = req.body;
   if (!body?.message?.text) {
-    return res.status(200).json({ ok: true });
-  }
+    return res.status(200).json({ ok: true });  }
 
   const chatId = body.message.chat.id;
   const text = body.message.text.trim();
@@ -243,6 +259,7 @@ module.exports = async (req, res) => {
   else if (text.startsWith("/")) await safeSendMessage(chatId, "❌ Command tidak dikenal.");
   else await handleAIChat(chatId, text, config, session);
 
-  return res.status(200).json({ ok: true });};
+  return res.status(200).json({ ok: true });
+};
 
-console.log("🤖 Bot ready (typing indicator stabil)");
+console.log("🤖 Bot ready (dengan MarkdownV2 aman & timeout 25s)");
